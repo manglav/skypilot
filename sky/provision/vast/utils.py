@@ -12,6 +12,16 @@ from sky.adaptors import vast
 
 logger = sky_logging.init_logger(__name__)
 
+import logging, os
+
+# Log file path can be overridden via env
+_log_path = os.environ.get("SKY_VAST_LOG", "/tmp/vast_query.log")
+_fh = logging.FileHandler(_log_path)
+_fh.setLevel(logging.INFO)
+_fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+logger.addHandler(_fh)
+logger.propagate = False  # avoid duplicate console logs
+
 
 def list_instances() -> Dict[str, Dict[str, Any]]:
     """Lists instances associated with API key."""
@@ -19,23 +29,29 @@ def list_instances() -> Dict[str, Dict[str, Any]]:
 
     instance_dict: Dict[str, Dict[str, Any]] = {}
     for instance in instances:
-        instance['id'] = str(instance['id'])
+        instance["id"] = str(instance["id"])
         info = instance
 
-        if isinstance(instance['actual_status'], str):
-            info['status'] = instance['actual_status'].upper()
+        if isinstance(instance["actual_status"], str):
+            info["status"] = instance["actual_status"].upper()
         else:
-            info['status'] = 'UNKNOWN'
-        info['name'] = instance['label']
+            info["status"] = "UNKNOWN"
+        info["name"] = instance["label"]
 
-        instance_dict[instance['id']] = info
+        instance_dict[instance["id"]] = info
 
     return instance_dict
 
 
-def launch(name: str, instance_type: str, region: str, disk_size: int,
-           image_name: str, ports: Optional[List[int]],
-           preemptible: bool) -> str:
+def launch(
+    name: str,
+    instance_type: str,
+    region: str,
+    disk_size: int,
+    image_name: str,
+    ports: Optional[List[int]],
+    preemptible: bool,
+) -> str:
     """Launches an instance with the given parameters.
 
     Converts the instance_type to the Vast GPU name, finds the specs for the
@@ -76,60 +92,108 @@ def launch(name: str, instance_type: str, region: str, disk_size: int,
          search for the machine again and potentially return a failure
          if there is no availability.
 
-	  *  We pass in the cpu_ram here as a guarantor to make sure the
-		 instance we match with will be compliant with the requested
-		 amount of memory.
+          *  We pass in the cpu_ram here as a guarantor to make sure the
+                 instance we match with will be compliant with the requested
+                 amount of memory.
 
       *  Vast instance types are an invention for skypilot. Refer to
          catalog/vast_catalog.py for the current construction
          of the type."""
-    cpu_ram = float(instance_type.split('-')[-1]) / 1024
-    gpu_name = instance_type.split('-')[1].replace('_', ' ')
-    num_gpus = int(instance_type.split('-')[0].replace('x', ''))
+    cpu_ram = float(instance_type.split("-")[-1]) / 1024
+    gpu_name = instance_type.split("-")[1].replace("_", " ")
+    num_gpus = int(instance_type.split("-")[0].replace("x", ""))
 
-    query = ' '.join([
-        'chunked=true',
-        'georegion=true',
-        f'geolocation="{region[-2:]}"',
-        f'disk_space>={disk_size}',
-        f'num_gpus={num_gpus}',
-        f'gpu_name="{gpu_name}"',
-        f'cpu_ram>="{cpu_ram}"',
-    ])
+    query = " ".join(
+        [
+            "chunked=true",
+            "georegion=true",
+            f'geolocation="{region[-2:]}"',
+            f"disk_space>={disk_size}",
+            f"num_gpus={num_gpus}",
+            f'gpu_name="{gpu_name}"',
+            f'cpu_ram>="{cpu_ram}"',
+        ]
+    )
 
-    instance_list = vast.vast().search_offers(query=query)
+    # Advanced query parameters for high-performance instances
+    advanced_query = " ".join(
+        [
+            "chunked=true",
+            "georegion=true",
+            "external=true",
+            "rentable=true",
+            "verified=true",
+            "dph<=1.3",
+            "reliability>=0.95",
+            "inet_down_cost<=0.01",
+            "inet_up_cost<0.01",
+            "inet_down>=200",
+            "inet_up>=200",
+            "gpu_arch=nvidia",
+            "compute_cap>8.5",
+            "cpu_arch=amd64",
+            "cpu_ghz>=2.0",
+            "cpu_ghz<=6.0",
+            "cpu_cores_effective>=16",
+            "dlperf>20",
+            "pcie_bw>=12",
+            "pci_gen>=3",
+        ]
+    )
+
+    logger.info(f"VAST API query: {advanced_query}")
+    logger.info(
+        f"VAST API inputs: instance_type={instance_type}, region={region}, disk_size={disk_size}, name={name}, image_name={image_name}, preemptible={preemptible}"
+    )
+
+    # Get high-performance offers sorted by price-performance ratio
+    instance_list = vast.vast().search_offers(
+        query=advanced_query,
+        no_default=True,
+        order="dlperf_usd-",
+        limit=10000,
+        storage=50,
+    )
+
+    # instance_list = vast.vast().search_offers(query=query)
 
     if isinstance(instance_list, int) or len(instance_list) == 0:
-        raise RuntimeError('Failed to create instances, could not find an '
-                           f'offer that satisfies the requirements "{query}".')
+        raise RuntimeError(
+            "Failed to create instances, could not find an "
+            f'offer that satisfies the requirements "{query}".'
+        )
 
     instance_touse = instance_list[0]
 
-    port_map = ' '.join([f'-p {p}:{p}' for p in ports]) if ports else ''
+    # Log the selected instance details
+    logger.info(f"Selected VAST.AI instance: instance_touse={instance_touse}")
+
+    port_map = " ".join([f"-p {p}:{p}" for p in ports]) if ports else ""
 
     launch_params = {
-        'id': instance_touse['id'],
-        'direct': True,
-        'ssh': True,
-        'env': f'-e __SOURCE=skypilot {port_map}',
-        'onstart_cmd': ';'.join([
-            'touch ~/.no_auto_tmux',
-            f'echo "{vast.vast().api_key_access}" > ~/.vast_api_key',
-        ]),
-        'label': name,
-        'image': image_name,
-        'disk': disk_size
+        "id": instance_touse["id"],
+        "direct": True,
+        "ssh": True,
+        "env": f"-e __SOURCE=skypilot {port_map}",
+        "onstart_cmd": ";".join(
+            [
+                "touch ~/.no_auto_tmux",
+                f'echo "{vast.vast().api_key_access}" > ~/.vast_api_key',
+            ]
+        ),
+        "label": name,
+        "image": image_name,
+        "disk": disk_size,
     }
 
     if preemptible:
-        launch_params['min_bid'] = instance_touse['min_bid']
+        launch_params["min_bid"] = instance_touse["min_bid"]
 
     new_instance_contract = vast.vast().create_instance(**launch_params)
 
-    new_instance = vast.vast().show_instance(
-        id=new_instance_contract['new_contract'])
+    new_instance = vast.vast().show_instance(id=new_instance_contract["new_contract"])
 
-    return new_instance['id']
+    return new_instance["id"]
 
 
 def start(instance_id: str) -> None:
@@ -149,17 +213,16 @@ def remove(instance_id: str) -> None:
 
 def get_ssh_ports(cluster_name: str) -> List[int]:
     """Gets the SSH ports for the given cluster."""
-    logger.debug(f'Getting SSH ports for cluster {cluster_name}.')
+    logger.debug(f"Getting SSH ports for cluster {cluster_name}.")
 
     instances = list_instances()
-    possible_names = [f'{cluster_name}-head', f'{cluster_name}-worker']
+    possible_names = [f"{cluster_name}-head", f"{cluster_name}-worker"]
 
     ssh_ports = []
 
     for instance in instances.values():
-        if instance['name'] in possible_names:
-            ssh_ports.append(instance['ssh_port'])
-    assert ssh_ports, (
-        f'Could not find any instances for cluster {cluster_name}.')
+        if instance["name"] in possible_names:
+            ssh_ports.append(instance["ssh_port"])
+    assert ssh_ports, f"Could not find any instances for cluster {cluster_name}."
 
     return ssh_ports
