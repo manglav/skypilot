@@ -163,10 +163,15 @@ def launch(
             "Failed to create instances, could not find an "
             f'offer that satisfies the requirements "{query}".'
         )
+    # Randomly select an instance from the top 10 for better distribution
+    # THIS WILL REDUCE CLASHES
+    # TODO - REMOVE THIS AND COME UP WITH A BETTER SOLUTION
+    import random
+    top_instances = instance_list[:10] if len(instance_list) >= 10 else instance_list
+    instance_touse = random.choice(top_instances)
 
-    instance_touse = instance_list[0]
-
-    # Log the selected instance details
+    # Log the selected instance details and count
+    logger.info(f"Found {len(instance_list)} VAST.AI instances matching criteria")
     logger.info(f"Selected VAST.AI instance: instance_touse={instance_touse}")
 
     port_map = " ".join([f"-p {p}:{p}" for p in ports]) if ports else ""
