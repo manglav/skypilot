@@ -138,6 +138,7 @@ def launch(
             "dlperf>20",
             "pcie_bw>=12",
             "pci_gen>=3",
+            "geolocation notin [CN, ID, IQ, RU, SA, SS, AF]"
         ]
     )
 
