@@ -190,10 +190,10 @@ INTERNAL_REQUEST_DAEMONS = [
     # This status refresh daemon can cause the autostopp'ed/autodown'ed cluster
     # set to updated status automatically, without showing users the hint of
     # cluster being stopped or down when `sky status -r` is called.
-    InternalRequestDaemon(id='skypilot-status-refresh-daemon',
-                          name='status',
-                          event_fn=refresh_cluster_status_event,
-                          default_log_level='DEBUG'),
+    # InternalRequestDaemon(id='skypilot-status-refresh-daemon',
+    #                       name='status',
+    #                       event_fn=refresh_cluster_status_event,
+    #                       default_log_level='DEBUG'),
     # Volume status refresh daemon to update the volume status periodically.
     InternalRequestDaemon(id='skypilot-volume-status-refresh-daemon',
                           name='volume',

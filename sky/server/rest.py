@@ -39,6 +39,17 @@ _session.headers[constants.VERSION_HEADER] = (
     versions.get_local_readable_version())
 
 
+# Add these lines to increase connection pool size
+from requests.adapters import HTTPAdapter
+
+adapter = HTTPAdapter(
+    pool_connections=100,  # Default is 10
+    pool_maxsize=100,  # Default is 10
+)
+_session.mount("http://", adapter)
+_session.mount("https://", adapter)
+
+
 class RetryContext:
 
     def __init__(self):

@@ -2962,19 +2962,13 @@ def get_clusters(
         return records
 
     plural = 's' if len(records) > 1 else ''
-    progress = rich_progress.Progress(transient=True,
-                                      redirect_stdout=False,
-                                      redirect_stderr=False)
-    task = progress.add_task(ux_utils.spinner_message(
-        f'Refreshing status for {len(records)} cluster{plural}'),
-                             total=len(records))
 
     if refresh == common.StatusRefreshMode.FORCE:
         force_refresh_statuses = set(status_lib.ClusterStatus)
     else:
         force_refresh_statuses = None
 
-    def _refresh_cluster(cluster_name):
+    def _refresh_cluster(cluster_name, progress=None, task=None):
         # TODO(syang): we should try not to leak
         # request info in backend_utils.py.
         # Refactor this to use some other info to
@@ -3003,15 +2997,40 @@ def get_clusters(
             # handle the 'UNKNOWN' status, and collect the errors into
             # a table.
             record = {'status': 'UNKNOWN', 'error': e}
-        progress.update(task, advance=1)
+        if progress is not None and task is not None:
+            progress.update(task, advance=1)
         return record
 
     cluster_names = [record['name'] for record in records]
     updated_records = []
     if len(cluster_names) > 0:
-        with progress:
+        # Check if running in a daemon context
+        is_daemon = False
+        
+        # Check if 'daemons.py' is in the call stack
+        import traceback
+        stack = traceback.extract_stack()
+        for frame in stack:
+            if 'daemons.py' in frame.filename:
+                is_daemon = True
+                break
+                
+        if is_daemon:
+            # Skip progress bar in non-interactive mode
+            logger.info(f'Refreshing status for {len(records)} cluster{plural} in non-interactive mode (skipping progress bar)')
             updated_records = subprocess_utils.run_in_parallel(
-                _refresh_cluster, cluster_names)
+                lambda name: _refresh_cluster(name), cluster_names)
+        else:
+            # Use progress bar for interactive use
+            progress = rich_progress.Progress(transient=True,
+                                          redirect_stdout=False,
+                                          redirect_stderr=False)
+            task = progress.add_task(ux_utils.spinner_message(
+                f'Refreshing status for {len(records)} cluster{plural}'),
+                                 total=len(records))
+            with progress:
+                updated_records = subprocess_utils.run_in_parallel(
+                    lambda name: _refresh_cluster(name, progress, task), cluster_names)
 
     # Show information for removed clusters.
     kept_records = []

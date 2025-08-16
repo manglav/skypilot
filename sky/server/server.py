@@ -1,5 +1,22 @@
 """SkyPilot API Server exposing RESTful APIs."""
 
+# Limit numerical library threads to prevent resource exhaustion
+import os
+
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+
+# At the top of sky/server/server.py
+import resource
+
+# Try to increase file descriptor limit
+try:
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (min(hard, 4096), hard))
+except (ValueError, OSError):
+    pass  # Ignore if we can't increase limits
 import argparse
 import asyncio
 import base64
